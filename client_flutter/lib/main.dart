@@ -1,7 +1,9 @@
-import 'dart:html' as html;
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:open_filex/open_filex.dart';
 import 'services/api_service.dart';
 
 void main() {
@@ -57,9 +59,12 @@ class _EditorPageState extends State<EditorPage> {
           await ApiService.generateNewsletter(title, content);
 
       if (pdfBytes != null) {
-        final blob = html.Blob([pdfBytes], 'application/pdf');
-        final url = html.Url.createObjectUrlFromBlob(blob);
-        html.window.open(url, '_blank');
+        final directory = await getApplicationDocumentsDirectory();
+        final filePath = '${directory.path}/newsletter.pdf';
+        final file = File(filePath);
+        await file.writeAsBytes(pdfBytes);
+
+        await OpenFilex.open(filePath);
 
         setState(() {
           statusMessage = 'PDF generated successfully.';
