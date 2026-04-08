@@ -4,7 +4,9 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:open_filex/open_filex.dart';
-import 'services/api_service.dart';
+import 'services/pdf_generator_service.dart';
+import 'models/article_model.dart';
+import 'package:flutter/services.dart' show rootBundle;
 
 void main() {
   runApp(const NewsletterApp());
@@ -73,38 +75,65 @@ class _EditorPageState extends State<EditorPage> {
     });
 
     try {
-      final Uint8List? pdfBytes =
-          await ApiService.generateNewsletter(title, content);
+      // For testing, we'll create a dummy Graphic with a placeholder or loaded bytes
+      // In a real app, these would come from a picker or database.
+      // Valid 1x1 transparent PNG
+      final Uint8List placeholderBytes = Uint8List.fromList([
+        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+        0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4,
+        0x89, 0x00, 0x00, 0x00, 0x0B, 0x49, 0x44, 0x41, 0x54, 0x08, 0xD7, 0x63, 0x60, 0x00, 0x02, 0x00,
+        0x00, 0x05, 0x00, 0x01, 0xE2, 0x26, 0x05, 0x9B, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44,
+        0xAE, 0x42, 0x60, 0x82
+      ]);
 
-      if (pdfBytes != null) {
-        final directory = await getApplicationDocumentsDirectory();
-        final filePath = '${directory.path}/newsletter.pdf';
-        final file = File(filePath);
-        await file.writeAsBytes(pdfBytes);
+      final article = Article(
+        heading: title,
+        body: content,
+        graphics: [
+          Graphic(
+            imageBytes: placeholderBytes,
+            caption: 'Ilustración del artículo principal',
+            columnSpan: 2,
+            verticalPosition: VerticalPosition.top,
+          ),
+          Graphic(
+            imageBytes: placeholderBytes,
+            caption: 'Detalle técnico de la implementación',
+            columnSpan: 1,
+            verticalPosition: VerticalPosition.middle,
+          ),
+        ],
+      );
 
+      final pdfBytes = await PdfGeneratorService().generateA5Newspaper(article);
+
+      // Save directly to the Windows Desktop for easy access from WSL
+      final filePath = '/mnt/d/Users/User/Desktop/newspaper_a5.pdf';
+      final file = File(filePath);
+      await file.writeAsBytes(pdfBytes);
+
+      setState(() {
+        statusMessage = '¡Creado en el Escritorio: newspaper_a5.pdf!';
+      });
+      
+      try {
         await OpenFilex.open(filePath);
-
-        setState(() {
-          statusMessage = 'PDF generated successfully.';
-        });
-        
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('PDF generated successfully!'), 
-              backgroundColor: Colors.green,
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
-        }
-      } else {
-        setState(() {
-          statusMessage = 'Failed to generate PDF.';
-        });
+      } catch (e) {
+        // Fallback or just let the user know it's on the desktop
+      }
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('¡Boletín generado en tu Escritorio de Windows!'), 
+            backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
       }
     } catch (e) {
       setState(() {
-        statusMessage = 'Error: $e';
+        statusMessage = 'Error local: $e';
       });
     } finally {
       setState(() {
