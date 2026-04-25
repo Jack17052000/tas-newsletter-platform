@@ -1,0 +1,63 @@
+# ── Build artifacts ───────────────────────────────────────────────────────────
+/build/
+/coverage/
+
+# ── Dart / Flutter tooling ────────────────────────────────────────────────────
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+pubspec.lock
+
+# ── IDE ───────────────────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+
+# ── Claude Code local settings ────────────────────────────────────────────────
+.claude/
+
+# ── OS junk ───────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+Desktop.ini
+ehthumbs.db
+
+# ── Crash / stack dumps ───────────────────────────────────────────────────────
+*.stackdump
+*.log
+
+# ── Native binaries & packages ────────────────────────────────────────────────
+*.exe
+*.deb
+*.so
+*.dylib
+*.app
+
+# ── Archives ──────────────────────────────────────────────────────────────────
+*.zip
+*.tar.gz
+*.tar.xz
+
+# ── Local Windows launchers (machine-specific) ────────────────────────────────
+*.vbs
+*.bat
+
+# ── Platform build intermediates ─────────────────────────────────────────────
+/android/app/debug
+/android/app/profile
+/android/app/release
+/android/build/
+/android/.gradle/
+android/local.properties
+
+# ── Test artifacts ────────────────────────────────────────────────────────────
+test/**/*.pdf
+*.pdf
+
+# ── Obfuscation / symbolication ───────────────────────────────────────────────
+app.*.symbols
+app.*.map.json
