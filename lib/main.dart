@@ -55,6 +55,12 @@ class _ArticleEntry {
     body.addListener(fn);
   }
 
+  void removeListeners(VoidCallback fn) {
+    headline.removeListener(fn);
+    author.removeListener(fn);
+    body.removeListener(fn);
+  }
+
   void dispose() {
     headline.dispose();
     author.dispose();
@@ -105,10 +111,13 @@ class _EditorPageState extends State<EditorPage> {
 
   // ── State helpers ───────────────────────────────────────────────────────────
 
+  // [FIX 1] Debounce increased to 800 ms so the preview panel only rebuilds
+  // after the user pauses typing — controllers never call setState, so the
+  // form itself is always smooth.
   void _schedulePreviewUpdate() {
     _debounce?.cancel();
     _debounce = Timer(
-      const Duration(milliseconds: 300),
+      const Duration(milliseconds: 800),
       () => _articlesNotifier.value = _buildArticles(),
     );
   }
@@ -120,9 +129,47 @@ class _EditorPageState extends State<EditorPage> {
   }
 
   void _removeEntry(int index) {
-    _entries[index].dispose();
+    _entries[index]
+      ..removeListeners(_schedulePreviewUpdate)
+      ..dispose();
     setState(() => _entries.removeAt(index));
     _schedulePreviewUpdate();
+  }
+
+  // [FIX 3] Clear everything and start a fresh article after confirmation.
+  Future<void> _newPublication() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Nueva Publicación'),
+        content: const Text(
+          '¿Descartar todos los artículos e imágenes y comenzar desde cero?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(backgroundColor: _oxfordBlue),
+            child: const Text('Confirmar'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    _debounce?.cancel();
+    for (final e in _entries) {
+      e.removeListeners(_schedulePreviewUpdate);
+      e.dispose();
+    }
+    setState(() {
+      _entries.clear();
+      _images.clear();
+    });
+    _addEntry();
   }
 
   List<Article> _buildArticles() {
@@ -173,6 +220,14 @@ class _EditorPageState extends State<EditorPage> {
         });
         _schedulePreviewUpdate();
       }
+    } on UnimplementedError {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('El selector de archivos no está disponible en esta plataforma.'),
+          ),
+        );
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -189,6 +244,10 @@ class _EditorPageState extends State<EditorPage> {
 
   // ── PDF generation ──────────────────────────────────────────────────────────
 
+  // [FIX 4] Uses path_provider without any hardcoded paths.
+  // Desktop: tries Downloads (user-visible), falls back to Documents.
+  // Web: streams bytes through the print API (no filesystem access needed).
+  // Mobile: falls back to application documents (accessible via Files app).
   Future<void> _generateAndSave() async {
     setState(() => _isGenerating = true);
     try {
@@ -200,7 +259,14 @@ class _EditorPageState extends State<EditorPage> {
       if (kIsWeb) {
         await Printing.sharePdf(bytes: pdfBytes, filename: fileName);
       } else {
-        final dir  = await getApplicationDocumentsDirectory();
+        Directory? dir;
+        try {
+          dir = await getDownloadsDirectory();
+        } catch (_) {
+          dir = null;
+        }
+        dir ??= await getApplicationDocumentsDirectory();
+
         final file = File('${dir.path}/$fileName');
         await file.writeAsBytes(pdfBytes);
         if (mounted) {
@@ -263,6 +329,15 @@ class _EditorPageState extends State<EditorPage> {
         style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 0.5),
       ),
       actions: [
+        // [FIX 3] New publication button
+        Tooltip(
+          message: 'Nueva Publicación',
+          child: IconButton(
+            onPressed: _isGenerating ? null : _newPublication,
+            icon: const Icon(Icons.note_add_outlined),
+          ),
+        ),
+        const SizedBox(width: 4),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           child: FilledButton.icon(
@@ -426,6 +501,8 @@ class _EditorPageState extends State<EditorPage> {
 
   // ── Article card ─────────────────────────────────────────────────────────────
 
+  // [FIX 2] Heading and Body sections are visually separated with labelled
+  // dividers. The heading field also gets a distinct highlighted style.
   Widget _buildArticleCard(int index) {
     final entry = _entries[index];
     return Container(
@@ -447,7 +524,7 @@ class _EditorPageState extends State<EditorPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header row: badge + delete
+            // Badge + delete row
             Row(
               children: [
                 Container(
@@ -479,13 +556,18 @@ class _EditorPageState extends State<EditorPage> {
             ),
             const SizedBox(height: 12),
 
+            // ── HEADING section ─────────────────────────────────────────────
+            _buildSectionLabel(Icons.title, 'ENCABEZADO'),
+            const SizedBox(height: 8),
+
             _buildField(
               controller: entry.headline,
               label: 'Titular',
               hint: 'Escribe el titular de la noticia...',
               icon: Icons.title,
+              highlighted: true,
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 8),
 
             _buildField(
               controller: entry.author,
@@ -493,7 +575,11 @@ class _EditorPageState extends State<EditorPage> {
               hint: 'Nombre del periodista o redactor',
               icon: Icons.person_outline,
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 14),
+
+            // ── BODY section ────────────────────────────────────────────────
+            _buildSectionLabel(Icons.article_outlined, 'CUERPO'),
+            const SizedBox(height: 8),
 
             _buildField(
               controller: entry.body,
@@ -509,6 +595,32 @@ class _EditorPageState extends State<EditorPage> {
     );
   }
 
+  Widget _buildSectionLabel(IconData icon, String label) {
+    return Row(
+      children: [
+        Icon(icon, size: 13, color: _slateGrey),
+        const SizedBox(width: 5),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.w700,
+            color: _slateGrey,
+            letterSpacing: 1.2,
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Divider(
+            color: _slateGrey.withValues(alpha: 0.3),
+            thickness: 1,
+            height: 1,
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildField({
     required TextEditingController controller,
     required String label,
@@ -516,33 +628,46 @@ class _EditorPageState extends State<EditorPage> {
     required IconData icon,
     int minLines = 1,
     int maxLines = 1,
+    bool highlighted = false,
   }) {
     return TextField(
       controller: controller,
       minLines: minLines,
       maxLines: maxLines,
-      style: const TextStyle(fontSize: 13, color: Color(0xFF1A1A2E)),
+      style: TextStyle(
+        fontSize: highlighted ? 14 : 13,
+        fontWeight: highlighted ? FontWeight.w600 : FontWeight.normal,
+        color: const Color(0xFF1A1A2E),
+      ),
       decoration: InputDecoration(
         labelText: label,
         hintText: hint,
         hintStyle: TextStyle(fontSize: 12, color: _slateGrey.withValues(alpha: 0.6)),
-        prefixIcon: Icon(icon, size: 17, color: _slateGrey),
+        prefixIcon: Icon(icon, size: 17, color: highlighted ? _oxfordBlue : _slateGrey),
         filled: true,
-        fillColor: _surfaceLight,
+        fillColor: highlighted ? _oxfordBlue.withValues(alpha: 0.04) : _surfaceLight,
         contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
-          borderSide: BorderSide(color: _slateGrey.withValues(alpha: 0.3)),
+          borderSide: BorderSide(
+            color: highlighted
+                ? _oxfordBlue.withValues(alpha: 0.4)
+                : _slateGrey.withValues(alpha: 0.3),
+          ),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
-          borderSide: BorderSide(color: _slateGrey.withValues(alpha: 0.3)),
+          borderSide: BorderSide(
+            color: highlighted
+                ? _oxfordBlue.withValues(alpha: 0.4)
+                : _slateGrey.withValues(alpha: 0.3),
+          ),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
           borderSide: const BorderSide(color: _oxfordBlue, width: 2),
         ),
-        labelStyle: TextStyle(color: _slateGrey, fontSize: 12),
+        labelStyle: TextStyle(color: highlighted ? _oxfordBlue : _slateGrey, fontSize: 12),
         floatingLabelStyle: const TextStyle(color: _oxfordBlue, fontSize: 12),
       ),
     );
